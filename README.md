@@ -100,7 +100,7 @@ one text line per request on stdout:
 | tag | u8 | `'R'` set the reference, `'S'` score a candidate |
 | width | u32 LE | pixels (ignored for PNG payloads) |
 | height | u32 LE | pixels (ignored for PNG payloads) |
-| fmt | u8 | 0 = interleaved sRGB RGB8 (w×h×3 bytes), 1 = PNG |
+| fmt | u8 | 0 = interleaved sRGB RGB8 (w×h×3 bytes), 1 = PNG, 2 = interleaved sRGB RGB16 LE (w×h×6 bytes) |
 | len | u32 LE | payload size in bytes (max 512 MiB) |
 | payload | bytes | pixels or PNG file |
 

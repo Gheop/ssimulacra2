@@ -129,6 +129,51 @@ fn worker_accepts_png_payload() {
 }
 
 #[test]
+fn worker_accepts_rgb16_payload() {
+    let mut child = Command::new(env!("CARGO_BIN_EXE_ssimulacra2_rs"))
+        .arg("worker")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut stdin = child.stdin.take().unwrap();
+    let mut lines = BufReader::new(child.stdout.take().unwrap()).lines();
+
+    let (w, h, src) = rgb8_bytes("small_source.png");
+    let (_, _, dst) = rgb8_bytes("small_distorted.png");
+
+    // u8 -> u16 plein-échelle (v * 257) : mêmes valeurs normalisées, le score
+    // doit être identique au chemin RGB8.
+    let widen = |bytes: &[u8]| -> Vec<u8> {
+        bytes
+            .iter()
+            .flat_map(|&v| (u16::from(v) * 257).to_le_bytes())
+            .collect()
+    };
+
+    send(&mut stdin, b'R', w, h, 2, &widen(&src));
+    assert_eq!(lines.next().unwrap().unwrap(), "OK");
+    send(&mut stdin, b'S', w, h, 2, &widen(&dst));
+    let line16 = lines.next().unwrap().unwrap();
+    let s16: f64 = line16.strip_prefix("SCORE ").unwrap().parse().unwrap();
+
+    send(&mut stdin, b'R', w, h, 0, &src);
+    assert_eq!(lines.next().unwrap().unwrap(), "OK");
+    send(&mut stdin, b'S', w, h, 0, &dst);
+    let line8 = lines.next().unwrap().unwrap();
+    let s8: f64 = line8.strip_prefix("SCORE ").unwrap().parse().unwrap();
+
+    assert!((s16 - s8).abs() < 1e-4, "rgb16 {s16} vs rgb8 {s8}");
+
+    // Payload de taille fausse -> ERR, la session continue.
+    send(&mut stdin, b'S', w, h, 2, &vec![0u8; 10]);
+    assert!(lines.next().unwrap().unwrap().starts_with("ERR "));
+
+    drop(stdin);
+    assert!(child.wait().unwrap().success());
+}
+
+#[test]
 fn worker_score_before_ref_is_an_error() {
     let mut child = Command::new(env!("CARGO_BIN_EXE_ssimulacra2_rs"))
         .arg("worker")

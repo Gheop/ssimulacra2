@@ -5,6 +5,7 @@ use ssimulacra2::{ColorPrimaries, ReferenceFrame, Rgb, TransferCharacteristic};
 
 const FMT_RGB8: u8 = 0;
 const FMT_PNG: u8 = 1;
+const FMT_RGB16: u8 = 2;
 // Garde-fou protocole : au-delà, c'est un flux corrompu, pas une image.
 const MAX_PAYLOAD: u32 = 512 * 1024 * 1024;
 
@@ -71,6 +72,29 @@ fn decode_rgb(req: &Request) -> Result<Rgb, String> {
                 ));
             }
             (u8_to_rgb_pixels(&req.payload), req.width, req.height)
+        }
+        FMT_RGB16 => {
+            let expected = req.width * req.height * 3 * 2;
+            if req.payload.len() != expected {
+                return Err(format!(
+                    "payload {} bytes, expected {expected} for {}x{} rgb16",
+                    req.payload.len(),
+                    req.width,
+                    req.height
+                ));
+            }
+            let pixels = req
+                .payload
+                .chunks_exact(6)
+                .map(|c| {
+                    [
+                        f32::from(u16::from_le_bytes([c[0], c[1]])) / 65535.0,
+                        f32::from(u16::from_le_bytes([c[2], c[3]])) / 65535.0,
+                        f32::from(u16::from_le_bytes([c[4], c[5]])) / 65535.0,
+                    ]
+                })
+                .collect::<Vec<_>>();
+            (pixels, req.width, req.height)
         }
         FMT_PNG => {
             let img = image::load_from_memory(&req.payload)
