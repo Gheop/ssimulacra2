@@ -10,6 +10,30 @@ pub use yuvxyb::{ColorPrimaries, MatrixCoefficients, TransferCharacteristic, Yuv
 // Each scaling step will downscale by a factor of two.
 pub(crate) const NUM_SCALES: usize = 6;
 
+#[cfg(feature = "rayon")]
+pub(crate) use rayon::join;
+
+#[cfg(not(feature = "rayon"))]
+pub(crate) fn join<A, B, RA, RB>(a: A, b: B) -> (RA, RB)
+where
+    A: FnOnce() -> RA + Send,
+    B: FnOnce() -> RB + Send,
+    RA: Send,
+    RB: Send,
+{
+    (a(), b())
+}
+
+pub(crate) fn image_multiply_owned(img1: &[Vec<f32>; 3], img2: &[Vec<f32>; 3]) -> [Vec<f32>; 3] {
+    let mut out = [
+        vec![0.0f32; img1[0].len()],
+        vec![0.0f32; img1[1].len()],
+        vec![0.0f32; img1[2].len()],
+    ];
+    image_multiply(img1, img2, &mut out);
+    out
+}
+
 /// Errors which can occur when attempting to calculate a SSIMULACRA2 score from two input images.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum Ssimulacra2Error {

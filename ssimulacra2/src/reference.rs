@@ -3,7 +3,7 @@ use yuvxyb::{LinearRgb, Xyb};
 use crate::blur::Blur;
 use crate::{
     Msssim, MsssimScale, NUM_SCALES, Ssimulacra2Error, downscale_by_2, edge_diff_map,
-    image_multiply, make_positive_xyb, ssim_map, xyb_to_planar,
+    image_multiply_owned, join, make_positive_xyb, ssim_map, xyb_to_planar,
 };
 
 /// Pyramide précalculée de l'image de référence.
@@ -47,11 +47,6 @@ impl ReferenceFrame {
     pub(crate) fn from_linear(mut img1: LinearRgb) -> Self {
         let mut width = img1.width();
         let mut height = img1.height();
-        let mut mul = [
-            vec![0.0f32; width * height],
-            vec![0.0f32; width * height],
-            vec![0.0f32; width * height],
-        ];
         let mut blur = Blur::new(width, height);
         let mut scales = Vec::with_capacity(NUM_SCALES);
 
@@ -64,18 +59,15 @@ impl ReferenceFrame {
                 width = img1.width();
                 height = img1.height();
             }
-            for c in &mut mul {
-                c.truncate(width * height);
-            }
             blur.shrink_to(width, height);
 
             let mut xyb = Xyb::from(img1.clone());
             make_positive_xyb(&mut xyb);
             let planar = xyb_to_planar(&xyb);
 
-            image_multiply(&planar, &planar, &mut mul);
-            let sigma1_sq = blur.blur(&mul);
-            let mu1 = blur.blur(&planar);
+            let mul = image_multiply_owned(&planar, &planar);
+            let (sigma1_sq, mu1) =
+                join(|| blur.blur_parallel(&mul), || blur.blur_parallel(&planar));
 
             scales.push(RefScale {
                 width,
@@ -117,11 +109,6 @@ impl ReferenceFrame {
     }
 
     pub(crate) fn score_linear(&self, mut img2: LinearRgb) -> f64 {
-        let mut mul = [
-            vec![0.0f32; self.width() * self.height()],
-            vec![0.0f32; self.width() * self.height()],
-            vec![0.0f32; self.width() * self.height()],
-        ];
         let mut blur = Blur::new(self.width(), self.height());
         let mut msssim = Msssim::default();
 
@@ -129,20 +116,25 @@ impl ReferenceFrame {
             if scale > 0 {
                 img2 = downscale_by_2(&img2);
             }
-            for c in &mut mul {
-                c.truncate(r.width * r.height);
-            }
             blur.shrink_to(r.width, r.height);
 
             let mut xyb = Xyb::from(img2.clone());
             make_positive_xyb(&mut xyb);
             let planar2 = xyb_to_planar(&xyb);
 
-            image_multiply(&planar2, &planar2, &mut mul);
-            let sigma2_sq = blur.blur(&mul);
-            image_multiply(&r.planar, &planar2, &mut mul);
-            let sigma12 = blur.blur(&mul);
-            let mu2 = blur.blur(&planar2);
+            let (mul22, mul12) = join(
+                || image_multiply_owned(&planar2, &planar2),
+                || image_multiply_owned(&r.planar, &planar2),
+            );
+            let ((sigma2_sq, sigma12), mu2) = join(
+                || {
+                    join(
+                        || blur.blur_parallel(&mul22),
+                        || blur.blur_parallel(&mul12),
+                    )
+                },
+                || blur.blur_parallel(&planar2),
+            );
 
             let avg_ssim = ssim_map(
                 r.width,

@@ -57,4 +57,29 @@ impl Blur {
             .vertical_pass_chunked::<128, 32>(&self.temp, &mut out, self.width, self.height);
         out
     }
+
+    /// Comme [blur][Self::blur] mais avec des buffers locaux par plan, ce qui
+    /// permet `&self` et l'exécution concurrente des trois plans.
+    #[must_use]
+    pub fn blur_parallel(&self, img: &[Vec<f32>; 3]) -> [Vec<f32>; 3] {
+        let (p0, (p1, p2)) = crate::join(
+            || self.blur_plane_local(&img[0]),
+            || {
+                crate::join(
+                    || self.blur_plane_local(&img[1]),
+                    || self.blur_plane_local(&img[2]),
+                )
+            },
+        );
+        [p0, p1, p2]
+    }
+
+    fn blur_plane_local(&self, plane: &[f32]) -> Vec<f32> {
+        let mut temp = vec![0f32; self.width * self.height];
+        let mut out = vec![0f32; self.width * self.height];
+        self.kernel.horizontal_pass(plane, &mut temp, self.width);
+        self.kernel
+            .vertical_pass_chunked::<128, 32>(&temp, &mut out, self.width, self.height);
+        out
+    }
 }
