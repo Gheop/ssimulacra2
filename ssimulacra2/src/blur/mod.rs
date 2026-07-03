@@ -78,6 +78,10 @@ impl Blur {
         let mut temp = vec![0f32; self.width * self.height];
         let mut out = vec![0f32; self.width * self.height];
         self.kernel.horizontal_pass(plane, &mut temp, self.width);
+        #[cfg(feature = "rayon")]
+        self.kernel
+            .vertical_pass_parallel::<128, 32>(&temp, &mut out, self.width, self.height);
+        #[cfg(not(feature = "rayon"))]
         self.kernel
             .vertical_pass_chunked::<128, 32>(&temp, &mut out, self.width, self.height);
         out

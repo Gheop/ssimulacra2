@@ -120,6 +120,132 @@ impl RecursiveGaussian {
         }
     }
 
+    // Comme vertical_pass_chunked, mais chaque bande de colonnes est traitée en
+    // parallèle dans un buffer contigu par bande, puis recopiée (scatter) vers
+    // la sortie strided. Les valeurs par colonne sont identiques au chemin
+    // séquentiel ; seul l'ordre d'exécution des bandes change.
+    #[cfg(feature = "rayon")]
+    pub fn vertical_pass_parallel<const J: usize, const K: usize>(
+        &self,
+        input: &[f32],
+        output: &mut [f32],
+        width: usize,
+        height: usize,
+    ) {
+        use rayon::prelude::*;
+
+        assert!(J > K);
+        assert!(K > 0);
+        assert_eq!(input.len(), output.len());
+
+        let mut stripes = Vec::new();
+        let mut x = 0;
+        while x + J <= width {
+            stripes.push((x, J));
+            x += J;
+        }
+        while x + K <= width {
+            stripes.push((x, K));
+            x += K;
+        }
+        while x < width {
+            stripes.push((x, 1));
+            x += 1;
+        }
+
+        let bufs: Vec<Vec<f32>> = stripes
+            .par_iter()
+            .map(|&(x0, cols)| {
+                let mut buf = vec![0f32; cols * height];
+                match cols {
+                    c if c == J => {
+                        self.vertical_pass_to::<J>(&input[x0..], &mut buf, width, height);
+                    }
+                    c if c == K => {
+                        self.vertical_pass_to::<K>(&input[x0..], &mut buf, width, height);
+                    }
+                    _ => {
+                        self.vertical_pass_to::<1>(&input[x0..], &mut buf, width, height);
+                    }
+                }
+                buf
+            })
+            .collect();
+
+        output
+            .par_chunks_mut(width)
+            .enumerate()
+            .for_each(|(y, row)| {
+                for (i, &(x0, cols)) in stripes.iter().enumerate() {
+                    row[x0..x0 + cols].copy_from_slice(&bufs[i][y * cols..(y + 1) * cols]);
+                }
+            });
+    }
+
+    // Variante de vertical_pass écrivant dans un buffer contigu de COLUMNS
+    // colonnes (out stride = COLUMNS) au lieu de la sortie strided.
+    #[cfg(feature = "rayon")]
+    fn vertical_pass_to<const COLUMNS: usize>(
+        &self,
+        input: &[f32],
+        output: &mut [f32],
+        width: usize,
+        height: usize,
+    ) {
+        let big_n = consts::RADIUS as isize;
+
+        let zeroes = vec![0f32; COLUMNS];
+        let mut prev = vec![0f32; 3 * COLUMNS];
+        let mut prev2 = vec![0f32; 3 * COLUMNS];
+        let mut out = vec![0f32; 3 * COLUMNS];
+
+        let mut n = (-big_n) + 1;
+        while n < height as isize {
+            let top = n - big_n - 1;
+            let bottom = n + big_n - 1;
+            let top_row = if top >= 0 {
+                &input[top as usize * width..][..COLUMNS]
+            } else {
+                &zeroes
+            };
+
+            let bottom_row = if bottom < height as isize {
+                &input[bottom as usize * width..][..COLUMNS]
+            } else {
+                &zeroes
+            };
+
+            for i in 0..COLUMNS {
+                let sum = top_row[i] + bottom_row[i];
+
+                let i1 = i;
+                let i3 = i1 + COLUMNS;
+                let i5 = i3 + COLUMNS;
+
+                let out1 = prev[i1].mul_add(consts::VERT_MUL_PREV_1, prev2[i1]);
+                let out3 = prev[i3].mul_add(consts::VERT_MUL_PREV_3, prev2[i3]);
+                let out5 = prev[i5].mul_add(consts::VERT_MUL_PREV_5, prev2[i5]);
+
+                let out1 = sum.mul_add(consts::VERT_MUL_IN_1, -out1);
+                let out3 = sum.mul_add(consts::VERT_MUL_IN_3, -out3);
+                let out5 = sum.mul_add(consts::VERT_MUL_IN_5, -out5);
+
+                out[i1] = out1;
+                out[i3] = out3;
+                out[i5] = out5;
+
+                if n >= 0 {
+                    output[n as usize * COLUMNS + i] = out1 + out3 + out5;
+                }
+            }
+
+            prev2.copy_from_slice(&prev);
+            prev.copy_from_slice(&out);
+
+            n += 1;
+        }
+    }
+
     // Apply 1D vertical scan on COLUMNS elements at a time
     pub fn vertical_pass<const COLUMNS: usize>(
         &self,
