@@ -42,4 +42,17 @@ fn main() {
         "one-shot: {:.1} ms (score {score:.4})",
         t0.elapsed().as_secs_f64() * 1000.0 / 5.0
     );
+
+    let t1 = Instant::now();
+    let r = ssimulacra2::ReferenceFrame::new(src.clone()).unwrap();
+    println!("ref build: {:.1} ms", t1.elapsed().as_secs_f64() * 1000.0);
+
+    let t2 = Instant::now();
+    for _ in 0..4 {
+        r.score(dst.clone()).unwrap();
+    }
+    println!(
+        "score (ref chaude): {:.1} ms/appel",
+        t2.elapsed().as_secs_f64() * 1000.0 / 4.0
+    );
 }
