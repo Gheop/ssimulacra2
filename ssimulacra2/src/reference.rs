@@ -3,7 +3,7 @@ use yuvxyb::{LinearRgb, Xyb};
 use crate::blur::Blur;
 use crate::{
     Msssim, MsssimScale, NUM_SCALES, Ssimulacra2Error, downscale_by_2, edge_diff_map,
-    image_multiply_owned, join, make_positive_xyb, ssim_map, xyb_to_planar,
+    image_multiply_owned, join, ssim_map, xyb_to_positive_planar,
 };
 
 /// Pyramide précalculée de l'image de référence.
@@ -61,9 +61,8 @@ impl ReferenceFrame {
             }
             blur.shrink_to(width, height);
 
-            let mut xyb = Xyb::from(img1.clone());
-            make_positive_xyb(&mut xyb);
-            let planar = xyb_to_planar(&xyb);
+            let xyb = Xyb::from(img1.clone());
+            let planar = xyb_to_positive_planar(&xyb);
 
             let mul = image_multiply_owned(&planar, &planar);
             let (sigma1_sq, mu1) =
@@ -118,9 +117,8 @@ impl ReferenceFrame {
             }
             blur.shrink_to(r.width, r.height);
 
-            let mut xyb = Xyb::from(img2.clone());
-            make_positive_xyb(&mut xyb);
-            let planar2 = xyb_to_planar(&xyb);
+            let xyb = Xyb::from(img2.clone());
+            let planar2 = xyb_to_positive_planar(&xyb);
 
             let (mul22, mul12) = join(
                 || image_multiply_owned(&planar2, &planar2),

@@ -94,32 +94,40 @@ where
 //  B: 0.272295..0.938012
 // The maximum pixel-wise difference has to be <= 1 for the ssim formula to make
 // sense.
-pub(crate) fn make_positive_xyb(xyb: &mut Xyb) {
-    for pix in xyb.data_mut().iter_mut() {
-        pix[2] = (pix[2] - pix[1]) + 0.55;
-        pix[0] = (pix[0]).mul_add(14.0, 0.42);
-        pix[1] += 0.01;
-    }
-}
+// Fusion de make_positive_xyb et xyb_to_planar de l'upstream : mêmes formules,
+// mêmes valeurs (o2 lit le pix[1] d'origine, comme l'ordre d'écriture original),
+// en une seule passe parallélisable sans buffer intermédiaire.
+pub(crate) fn xyb_to_positive_planar(xyb: &Xyb) -> [Vec<f32>; 3] {
+    let n = xyb.width() * xyb.height();
+    let mut out0 = vec![0.0f32; n];
+    let mut out1 = vec![0.0f32; n];
+    let mut out2 = vec![0.0f32; n];
 
-pub(crate) fn xyb_to_planar(xyb: &Xyb) -> [Vec<f32>; 3] {
-    let mut out1 = vec![0.0f32; xyb.width() * xyb.height()];
-    let mut out2 = vec![0.0f32; xyb.width() * xyb.height()];
-    let mut out3 = vec![0.0f32; xyb.width() * xyb.height()];
-    for (((i, o1), o2), o3) in xyb
-        .data()
+    let fill = |pix: &[f32; 3], o0: &mut f32, o1: &mut f32, o2: &mut f32| {
+        *o0 = pix[0].mul_add(14.0, 0.42);
+        *o1 = pix[1] + 0.01;
+        *o2 = (pix[2] - pix[1]) + 0.55;
+    };
+
+    #[cfg(feature = "rayon")]
+    {
+        use rayon::prelude::*;
+        xyb.data()
+            .par_iter()
+            .zip(out0.par_iter_mut())
+            .zip(out1.par_iter_mut())
+            .zip(out2.par_iter_mut())
+            .for_each(|(((pix, o0), o1), o2)| fill(pix, o0, o1, o2));
+    }
+    #[cfg(not(feature = "rayon"))]
+    xyb.data()
         .iter()
-        .copied()
+        .zip(out0.iter_mut())
         .zip(out1.iter_mut())
         .zip(out2.iter_mut())
-        .zip(out3.iter_mut())
-    {
-        *o1 = i[0];
-        *o2 = i[1];
-        *o3 = i[2];
-    }
+        .for_each(|(((pix, o0), o1), o2)| fill(pix, o0, o1, o2));
 
-    [out1, out2, out3]
+    [out0, out1, out2]
 }
 
 pub(crate) fn image_multiply(img1: &[Vec<f32>; 3], img2: &[Vec<f32>; 3], out: &mut [Vec<f32>; 3]) {
@@ -140,7 +148,7 @@ pub(crate) fn downscale_by_2(in_data: &LinearRgb) -> LinearRgb {
     let normalize = 1f32 / (SCALE * SCALE) as f32;
 
     let in_data = &in_data.data();
-    for oy in 0..out_h {
+    let compute_row = |oy: usize, out_row: &mut [[f32; 3]]| {
         for ox in 0..out_w {
             for c in 0..3 {
                 let mut sum = 0f32;
@@ -153,11 +161,24 @@ pub(crate) fn downscale_by_2(in_data: &LinearRgb) -> LinearRgb {
                         sum += in_pix[c];
                     }
                 }
-                let out_pix = &mut out_data[oy * out_w + ox];
-                out_pix[c] = sum * normalize;
+                out_row[ox][c] = sum * normalize;
             }
         }
+    };
+
+    #[cfg(feature = "rayon")]
+    {
+        use rayon::prelude::*;
+        out_data
+            .par_chunks_exact_mut(out_w)
+            .enumerate()
+            .for_each(|(oy, row)| compute_row(oy, row));
     }
+    #[cfg(not(feature = "rayon"))]
+    out_data
+        .chunks_exact_mut(out_w)
+        .enumerate()
+        .for_each(|(oy, row)| compute_row(oy, row));
 
     LinearRgb::new(out_data, out_w, out_h).expect("Resolution and data size match")
 }
@@ -174,9 +195,8 @@ pub(crate) fn ssim_map(
     const C2: f32 = 0.0009f32;
 
     let one_per_pixels = 1.0f64 / (width * height) as f64;
-    let mut plane_averages = [0f64; 3 * 2];
 
-    for c in 0..3 {
+    let per_channel = |c: usize| -> [f64; 2] {
         let mut sum1 = [0.0f64; 2];
         for (row_m1, (row_m2, (row_s11, (row_s22, row_s12)))) in m1[c].chunks_exact(width).zip(
             m2[c].chunks_exact(width).zip(
@@ -214,10 +234,20 @@ pub(crate) fn ssim_map(
                 sum1[1] += d.powi(4);
             }
         }
-        plane_averages[c * 2] = one_per_pixels * sum1[0];
-        plane_averages[c * 2 + 1] = (one_per_pixels * sum1[1]).sqrt().sqrt();
-    }
+        [
+            one_per_pixels * sum1[0],
+            (one_per_pixels * sum1[1]).sqrt().sqrt(),
+        ]
+    };
 
+    let ((r0, r1), r2) = join(|| join(|| per_channel(0), || per_channel(1)), || {
+        per_channel(2)
+    });
+    let mut plane_averages = [0f64; 3 * 2];
+    for (c, r) in [r0, r1, r2].into_iter().enumerate() {
+        plane_averages[c * 2] = r[0];
+        plane_averages[c * 2 + 1] = r[1];
+    }
     plane_averages
 }
 
@@ -230,9 +260,8 @@ pub(crate) fn edge_diff_map(
     mu2: &[Vec<f32>; 3],
 ) -> [f64; 3 * 4] {
     let one_per_pixels = 1.0f64 / (width * height) as f64;
-    let mut plane_averages = [0f64; 3 * 4];
 
-    for c in 0..3 {
+    let per_channel = |c: usize| -> [f64; 4] {
         let mut sum1 = [0.0f64; 4];
         for (row1, (row2, (rowm1, rowm2))) in img1[c].chunks_exact(width).zip(
             img2[c]
@@ -257,12 +286,24 @@ pub(crate) fn edge_diff_map(
                 sum1[3] += detail_lost.powi(4);
             }
         }
-        plane_averages[c * 4] = one_per_pixels * sum1[0];
-        plane_averages[c * 4 + 1] = (one_per_pixels * sum1[1]).sqrt().sqrt();
-        plane_averages[c * 4 + 2] = one_per_pixels * sum1[2];
-        plane_averages[c * 4 + 3] = (one_per_pixels * sum1[3]).sqrt().sqrt();
-    }
+        [
+            one_per_pixels * sum1[0],
+            (one_per_pixels * sum1[1]).sqrt().sqrt(),
+            one_per_pixels * sum1[2],
+            (one_per_pixels * sum1[3]).sqrt().sqrt(),
+        ]
+    };
 
+    let ((r0, r1), r2) = join(|| join(|| per_channel(0), || per_channel(1)), || {
+        per_channel(2)
+    });
+    let mut plane_averages = [0f64; 3 * 4];
+    for (c, r) in [r0, r1, r2].into_iter().enumerate() {
+        plane_averages[c * 4] = r[0];
+        plane_averages[c * 4 + 1] = r[1];
+        plane_averages[c * 4 + 2] = r[2];
+        plane_averages[c * 4 + 3] = r[3];
+    }
     plane_averages
 }
 
