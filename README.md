@@ -58,6 +58,23 @@ Reference construction (`ReferenceFrame::new`, paid once per reference): 176 ms 
 Reproduce with `cargo run --release -p ssimulacra2 --example bench_search` and
 `hyperfine` on the fixtures in `ssimulacra2/test_data/`.
 
+### Build with `target-cpu=x86-64-v3` (another ~2×)
+
+The pipeline uses `f32::mul_add` heavily. Without FMA in the target features,
+Rust lowers it to a correctly-rounded `fmaf` library call; with
+`-C target-cpu=x86-64-v3` (Haswell/2013 or newer) it becomes a single FMA
+instruction:
+
+```
+RUSTFLAGS="-C target-cpu=x86-64-v3" cargo install --path ssimulacra2_bin --no-default-features
+```
+
+Measured on the 1448×1080 pair: 616 ms → 283 ms (2.2×) on top of the numbers
+above (same machine, same run). Caveat: FMA rounds once instead of twice, so
+scores shift by less than 0.01 versus the portable build — irrelevant for
+quality targeting, but run `cargo test` without the flag if you want the
+goldens to match at 1e-4.
+
 ## Library usage
 
 ```rust
