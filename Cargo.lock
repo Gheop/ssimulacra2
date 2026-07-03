@@ -2027,18 +2027,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ssimulacra2"
-version = "0.5.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "700cb4e17f98c3f36756815b18dbec2b2e3c4f5028e9cdee3e23dd8c285e736c"
-dependencies = [
- "num-traits",
- "thiserror 2.0.18",
- "yuvxyb",
- "yuvxyb-math",
-]
-
-[[package]]
 name = "ssimulacra2_rs"
 version = "0.5.2"
 dependencies = [
@@ -2053,7 +2041,7 @@ dependencies = [
  "num-traits",
  "plotters",
  "png",
- "ssimulacra2 0.5.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "ssimulacra2",
  "statrs",
 ]
 
