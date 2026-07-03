@@ -5,6 +5,8 @@
 - Add `ssimulacra2_rs worker`: persistent scoring process over stdin/stdout (raw RGB8 or PNG)
 - Enable the lib `rayon` feature in the binary
 - Fix lcms2 panic on 16-bit PNGs with an ICC profile (transform `[u16; 3]` pixels, not bare `u16`)
+- Parallelize the vertical blur pass by column stripes (identical values)
+- Accept 16-bit RGB payloads (`fmt=2`) in worker mode
 
 ## Version 0.5.1
 

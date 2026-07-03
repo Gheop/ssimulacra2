@@ -49,8 +49,9 @@ after the reference is warm):
 | Path | per-iteration cost | vs upstream one-shot |
 |---|---|---|
 | upstream CLI call | 1.231 s | 1.0× |
-| lib, `ReferenceFrame` warm | ~0.21–0.24 s | ~5× |
+| lib, `ReferenceFrame` warm | ~0.17–0.21 s | ~6× |
 | `worker` mode, raw RGB8 over stdin | 0.235 s ± 0.034 (0.119 s at 1024×764) | ~5× |
+| `worker` mode, `x86-64-v3` build | 0.094 s ± 0.019 (0.053 s at 1024×764) | ~13× |
 
 Reference construction (`ReferenceFrame::new`, paid once per reference): 176 ms at
 1448×1080, 103 ms at 1024×764.
@@ -69,7 +70,7 @@ instruction:
 RUSTFLAGS="-C target-cpu=x86-64-v3" cargo install --path ssimulacra2_bin --no-default-features
 ```
 
-Measured on the 1448×1080 pair: 616 ms → 283 ms (2.2×) on top of the numbers
+Measured on the 1448×1080 pair: 521 ms → 268 ms (1.9×) on top of the numbers
 above (same machine, same run). Caveat: FMA rounds once instead of twice, so
 scores shift by less than 0.01 versus the portable build — irrelevant for
 quality targeting, but run `cargo test` without the flag if you want the
@@ -127,3 +128,5 @@ PATCH version increase.
   `default-features = false`).
 - Fixed an lcms2 panic on 16-bit PNGs with an embedded ICC profile (transform `[u16; 3]`
   pixels instead of bare `u16`).
+- Vertical blur pass parallelized by column stripes (identical values, ~15 % faster warm
+  scores) and 16-bit RGB payloads (`fmt=2`) accepted in worker mode.
