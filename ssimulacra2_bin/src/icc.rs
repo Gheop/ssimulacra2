@@ -303,9 +303,16 @@ fn apply_icc_transform_u16(rgb: Vec<u16>, icc_profile: &Option<Vec<u8>>) -> Vec<
         }
     };
 
-    let mut dst = vec![0u16; rgb.len()];
-    transform.transform_pixels(&rgb, &mut dst);
-    dst
+    // lcms2 vérifie que la taille du type élément égale celle du pixel : RGB_16
+    // fait 6 octets, il faut donc transformer des [u16; 3], pas des u16 nus
+    // (seul u8 bénéficie d'un traitement spécial).
+    let src_pixels: Vec<[u16; 3]> = rgb
+        .chunks_exact(3)
+        .map(|c| [c[0], c[1], c[2]])
+        .collect();
+    let mut dst_pixels = vec![[0u16; 3]; src_pixels.len()];
+    transform.transform_pixels(&src_pixels, &mut dst_pixels);
+    dst_pixels.into_iter().flatten().collect()
 }
 
 /// Naive CMYK -> RGB conversion, ignoring color management. Used when no usable
