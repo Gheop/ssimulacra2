@@ -1,6 +1,7 @@
 mod icc;
 #[cfg(feature = "video")]
 mod video;
+mod worker;
 
 #[cfg(feature = "video")]
 use self::video::*;
@@ -35,6 +36,9 @@ enum Commands {
         #[arg(long)]
         no_icc: bool,
     },
+    /// Persistent scoring worker: length-prefixed requests on stdin,
+    /// one text reply per request on stdout. Made for quality searches.
+    Worker,
     /// Compare two videos. Resolutions and frame counts must be identical.
     #[cfg(feature = "video")]
     Video {
@@ -112,6 +116,12 @@ fn main() {
             distorted,
             no_icc,
         } => compare_images(&source, &distorted, !no_icc),
+        Commands::Worker => {
+            if let Err(e) = worker::run() {
+                eprintln!("worker: {e:#}");
+                std::process::exit(2);
+            }
+        }
         #[cfg(feature = "video")]
         Commands::Video {
             source,
