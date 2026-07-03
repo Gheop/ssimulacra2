@@ -1,6 +1,6 @@
 [package]
 name = "ssimulacra2_rs"
-version = "0.5.2"
+version = "0.6.0"
 edition = "2024"
 rust-version = "1.89"
 description = "CLI for the ssimulacra2 rust implementation"

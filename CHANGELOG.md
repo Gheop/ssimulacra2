@@ -1,3 +1,11 @@
+## Version 0.6.0 (fork)
+
+- Add `ReferenceFrame`: precompute the reference pyramid once, score many candidates
+- Extend rayon parallelism to the whole pipeline (planes, independent blurs, maps, downscale, XYB)
+- Add `ssimulacra2_rs worker`: persistent scoring process over stdin/stdout (raw RGB8 or PNG)
+- Enable the lib `rayon` feature in the binary
+- Fix lcms2 panic on 16-bit PNGs with an ICC profile (transform `[u16; 3]` pixels, not bare `u16`)
+
 ## Version 0.5.1
 
 - Remove nalgebra-macros and update criterion
