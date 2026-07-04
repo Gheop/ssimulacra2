@@ -2041,6 +2041,7 @@ dependencies = [
  "num-traits",
  "plotters",
  "png",
+ "rayon",
  "ssimulacra2",
  "statrs",
 ]
